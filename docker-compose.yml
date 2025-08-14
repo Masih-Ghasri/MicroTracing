@@ -1,0 +1,167 @@
+services:
+  elasticsearch:
+    image: docker-elasticsearch:latest
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - microservice_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+
+  kibana:
+    image: docker-kibana:latest
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    ports:
+      - "5601:5601"
+    volumes:
+      - ./config/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - microservice_net
+
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: logstash
+    volumes:
+      - ./config/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./config/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./config/logstash/templates:/usr/share/logstash/templates:ro
+    ports:
+      - "5044:5044"
+      - "8080:8080"
+      - "9600:9600"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - microservice_net
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - microservice_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+      - "14250:14250"
+    environment:
+      SPAN_STORAGE_TYPE: elasticsearch
+      ES_SERVER_URLS: http://elasticsearch:9200
+      ES_NUM_SHARDS: 1
+      ES_NUM_REPLICAS: 0
+      COLLECTOR_OTLP_ENABLED: true
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - microservice_net
+
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: producer
+    ports:
+      - "8081:8080"
+    environment:
+      RABBITMQ_URL: amqp://admin:admin@rabbitmq:5672/
+      JAEGER_ENDPOINT: http://jaeger:14268/api/traces
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      SERVICE_NAME: producer-service
+      LOG_LEVEL: info
+      PORT: 8080
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    networks:
+      - microservice_net
+    restart: unless-stopped
+
+  consumer:
+    build:
+      context: ./consumer
+      dockerfile: Dockerfile
+    container_name: consumer
+    ports:
+      - "8082:8081"
+    environment:
+      RABBITMQ_URL: amqp://admin:admin@rabbitmq:5672/
+      JAEGER_ENDPOINT: http://jaeger:14268/api/traces
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      SERVICE_NAME: consumer-service
+      LOG_LEVEL: info
+      HTTP_PORT: 8081
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    networks:
+      - microservice_net
+    restart: unless-stopped
+
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - microservice_net
+
+volumes:
+  rabbitmq_data:
+  elasticsearch_data:
+  redis_data:
+
+networks:
+  microservice_net:
+    driver: bridge
