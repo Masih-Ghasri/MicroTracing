@@ -83,17 +83,42 @@ services:
       - "16686:16686"
       - "14268:14268"
       - "14250:14250"
+      - "14269:14269"
     environment:
       SPAN_STORAGE_TYPE: elasticsearch
       ES_SERVER_URLS: http://elasticsearch:9200
       ES_NUM_SHARDS: 1
       ES_NUM_REPLICAS: 0
       COLLECTOR_OTLP_ENABLED: true
+    command:
+      - --metrics-backend=prometheus
+      - --metrics-http-route=/metrics
     depends_on:
       elasticsearch:
         condition: service_healthy
     networks:
       - microservice_net
+
+  jaeger-query:
+    image: jaegertracing/jaeger-query:latest
+    container_name: jaeger-query
+    command:
+      - --metrics-backend=prometheus
+      - --metrics-http-route=/metrics
+    ports:
+      - "16687:16686" # UI
+      - "16689:16689" # metrics
+    environment:
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - ES_SERVER_URLS=http://elasticsearch:9200
+      - ES_NUM_SHARDS=1
+      - ES_NUM_REPLICAS=0
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - microservice_net
+
 
   producer:
     build:
@@ -145,7 +170,6 @@ services:
       - microservice_net
     restart: unless-stopped
 
-
   # Redis for caching
   redis:
     image: redis:7-alpine
@@ -156,6 +180,42 @@ services:
       - redis_data:/data
     networks:
       - microservice_net
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - microservice_net
+
+  node_exporter:
+    image: prom/node-exporter:v1.8.1
+    container_name: node_exporter
+    restart: unless-stopped
+    networks:
+      - microservice_net
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)'
 
 volumes:
   rabbitmq_data:
