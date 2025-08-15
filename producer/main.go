@@ -542,7 +542,7 @@ func main() {
 	// Simulate load endpoint for testing
 	r.POST("/simulate-load", func(c *gin.Context) {
 		var req struct {
-			Duration int `json:"duration_seconds" binding:"required,min=1,max=300"`
+			Duration int `json:"duration_seconds" binding:"required,min=1,max=1000"`
 			Rate     int `json:"messages_per_second" binding:"required,min=1,max=100"`
 		}
 

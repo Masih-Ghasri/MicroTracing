@@ -1,23 +1,24 @@
-# Producer Dockerfile
-FROM golang:1.23.5-alpine AS builder
+# Stage 1: Build
+FROM golang:1.24.5-alpine AS builder
 
 WORKDIR /app
 
-# Copy go mod files
+# Copy dependency files
 COPY go.mod go.sum ./
-RUN go mod download
+COPY vendor ./vendor
 
 # Copy source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o producer .
+# Build (with vendored dependencies)
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -o producer .
 
-# Final stage
+# Stage 2: Run
 FROM alpine:latest
 
 WORKDIR /root/
 
+# Copy only the binary (no source code or vendor)
 COPY --from=builder /app/producer .
 
 EXPOSE 8080

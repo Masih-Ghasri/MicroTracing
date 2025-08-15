@@ -1,6 +1,6 @@
 services:
   elasticsearch:
-    image: docker-elasticsearch:latest
+    image: elastic/elasticsearch:9.1.2
     container_name: elasticsearch
     environment:
       - discovery.type=single-node
@@ -22,7 +22,7 @@ services:
 
 
   kibana:
-    image: docker-kibana:latest
+    image: elastic/kibana:8.19.2
     container_name: kibana
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
@@ -39,7 +39,7 @@ services:
 
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:8.11.0
+    image: elastic/logstash:8.19.2
     container_name: logstash
     volumes:
       - ./config/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
